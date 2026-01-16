@@ -124,8 +124,8 @@ class XeniumLGCP:
     def plot_results(self):
         """
         Plots:
-        1. Fitted Intensity (Lambda)
-        2. Posterior Mean of Latent Field (Mu)
+        1. Fitted Intensity (Lambda) - Uses 'viridis' (Purple-Yellow)
+        2. Posterior Mean of Latent Field (Mu) - Uses 'coolwarm' (Blue-Red)
         3. Covariate Field (if present)
         """
         if self.model_ is None: 
@@ -143,7 +143,7 @@ class XeniumLGCP:
         X_pred = np.column_stack(X_cols)
         lam = self.model_.expected_intensity_on_grid(A_id, X_pred).get()
         
-        # 2. Get Posterior Mean (Mu) - The latent spatial field
+        # 2. Get Posterior Mean (Mu)
         mu_post = self.model_.mu_.get()
 
         # 3. Determine Layout
@@ -151,18 +151,17 @@ class XeniumLGCP:
         n_plots = 3 if has_covariate else 2
         
         fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 5))
-        if n_plots == 1: axes = [axes] # Handle single plot case just in case
+        if n_plots == 1: axes = [axes]
         
-        # Plot A: Fitted Intensity
+        # --- PLOT A: Fitted Intensity (Updated to 'viridis') ---
         ax = axes[0]
         cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
-                             self.tri_.simplices, lam, cmap='magma')
+                             self.tri_.simplices, lam, cmap='viridis') # <--- CHANGED TO VIRIDIS
         plt.colorbar(cnt, ax=ax, label="Intensity $\lambda(s)$")
-        ax.set_title(f"Fitted Intensity")
+        ax.set_title(f"Fitted Intensity\n(Target: {self.model_.beta_[0].item():.2f})")
         
-        # Plot B: Posterior Mean (Latent Field)
+        # --- PLOT B: Posterior Mean (Kept as 'coolwarm') ---
         ax = axes[1]
-        # Use a divergent colormap (red/blue) because Mu is centered around 0
         vmax = np.max(np.abs(mu_post))
         cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
                              self.tri_.simplices, mu_post, 
@@ -170,7 +169,7 @@ class XeniumLGCP:
         plt.colorbar(cnt, ax=ax, label="Latent Field $\mu(s)$")
         ax.set_title("Posterior Mean (Spatial Residual)")
 
-        # Plot C: Covariate (if exists)
+        # --- PLOT C: Covariate (if exists) ---
         if has_covariate:
             ax = axes[2]
             cov_field = X_cols[1]
