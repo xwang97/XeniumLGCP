@@ -2,6 +2,7 @@ import time
 import numpy as np
 import cupy as cp
 import cupyx.scipy.sparse as cpx_sp
+from tqdm import tqdm
 
 # Import the GPU stable operations from the utils folder
 from .utils.stable_ops import (
@@ -118,7 +119,8 @@ class VoGCAM_SPDE_GPU:
         self.tau_ = cp.array(1.0)
         self.elbo_history_ = []
 
-        for it in range(self.max_iter):
+        pbar = tqdm(range(self.max_iter), disable=not self.verbose, desc="LGCP Fitting")
+        for it in pbar:
             # 1. mu-step
             eta_var = self.compute_eta_var(A_tilde, D, U)
             eta = X_tilde @ self.beta_ + A_tilde @ self.mu_ + 0.5 * eta_var
@@ -165,8 +167,8 @@ class VoGCAM_SPDE_GPU:
             elbo = self._elbo_full(self.beta_, self.mu_, D, U, Qb, A_tilde, X_tilde, A, X, w, self.tau_)
             self.elbo_history_.append(elbo)
             
-            if self.verbose:
-                print(f"[Iter {it}] ELBO={elbo:.3e} tau={float(self.tau_):.3f}")
+            # if self.verbose:
+            #     print(f"[Iter {it}] ELBO={elbo:.3e} tau={float(self.tau_):.3f}")
 
         return self
 

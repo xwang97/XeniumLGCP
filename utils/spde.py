@@ -36,8 +36,10 @@ def spde_precision_with_mass(coords, tri, kappa=0.2):
                 C[ii, jj] += C_loc[i, j]
                 G[ii, jj] += G_loc[i, j]
 
-    C = C.tocsr()
-    G = G.tocsr()
+    # C = C.tocsr()
+    # G = G.tocsr()
+    C = C.tocsc()  # <--- Changed from tocsr()
+    G = G.tocsc()  # <--- Changed from tocsr()
 
     # C^{-1} (mass matrix inverse)
     Cinv = sparse_inv(C)

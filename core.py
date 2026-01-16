@@ -122,8 +122,17 @@ class XeniumLGCP:
         return self
 
     def plot_results(self):
-        if self.model_ is None: return
+        """
+        Plots:
+        1. Fitted Intensity (Lambda)
+        2. Posterior Mean of Latent Field (Mu)
+        3. Covariate Field (if present)
+        """
+        if self.model_ is None: 
+            print("Model not fitted.")
+            return
         
+        # 1. Get Fitted Intensity (Lambda)
         A_id = csr_matrix(np.eye(self.coords_.shape[0]))
         X_cols = [np.ones((self.coords_.shape[0]))]
         
@@ -134,24 +143,61 @@ class XeniumLGCP:
         X_pred = np.column_stack(X_cols)
         lam = self.model_.expected_intensity_on_grid(A_id, X_pred).get()
         
-        n_plots = 2 if self.covariate_name_ else 1
-        fig, axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
-        if n_plots == 1: axes = [axes]
+        # 2. Get Posterior Mean (Mu) - The latent spatial field
+        mu_post = self.model_.mu_.get()
+
+        # 3. Determine Layout
+        has_covariate = (self.covariate_name_ is not None)
+        n_plots = 3 if has_covariate else 2
         
+        fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 5))
+        if n_plots == 1: axes = [axes] # Handle single plot case just in case
+        
+        # Plot A: Fitted Intensity
         ax = axes[0]
         cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
                              self.tri_.simplices, lam, cmap='magma')
-        plt.colorbar(cnt, ax=ax, label="Fitted Intensity")
-        ax.set_title(f"Target: {self.model_.beta_[0].item():.2f}")
+        plt.colorbar(cnt, ax=ax, label="Intensity $\lambda(s)$")
+        ax.set_title(f"Fitted Intensity")
         
-        if self.covariate_name_:
-            ax = axes[1]
-            cov = X_cols[1]
+        # Plot B: Posterior Mean (Latent Field)
+        ax = axes[1]
+        # Use a divergent colormap (red/blue) because Mu is centered around 0
+        vmax = np.max(np.abs(mu_post))
+        cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
+                             self.tri_.simplices, mu_post, 
+                             cmap='coolwarm', vmin=-vmax, vmax=vmax)
+        plt.colorbar(cnt, ax=ax, label="Latent Field $\mu(s)$")
+        ax.set_title("Posterior Mean (Spatial Residual)")
+
+        # Plot C: Covariate (if exists)
+        if has_covariate:
+            ax = axes[2]
+            cov_field = X_cols[1]
             cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
-                                 self.tri_.simplices, cov, cmap='viridis')
+                                 self.tri_.simplices, cov_field, cmap='viridis')
             plt.colorbar(cnt, ax=ax, label="Std. Intensity")
             beta_cov = self.model_.beta_[1].item()
             ax.set_title(f"Covariate: {self.covariate_name_}\nBeta = {beta_cov:.3f}")
-            
+
+        plt.tight_layout()
+        plt.show()
+    
+    def plot_loss(self):
+        """
+        Plots the ELBO (Evidence Lower Bound) history to check convergence.
+        """
+        if self.model_ is None or not hasattr(self.model_, 'elbo_history_'):
+            print("Model not fitted yet.")
+            return
+
+        elbos = [float(e) for e in self.model_.elbo_history_]
+        
+        plt.figure(figsize=(6, 4))
+        plt.plot(elbos, 'b-', linewidth=2)
+        plt.xlabel("Iteration")
+        plt.ylabel("ELBO (Higher is better)")
+        plt.title("Optimization Convergence")
+        plt.grid(True, linestyle='--', alpha=0.6)
         plt.tight_layout()
         plt.show()

@@ -1,0 +1,6 @@
+numpy
+pandas
+scipy
+matplotlib
+tqdm
+cupy-cuda12x  # IMPORTANT: Users must match this to their CUDA version (11x or 12x)
