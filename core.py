@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
 from scipy.spatial import Delaunay
 from scipy.sparse import csr_matrix
 
@@ -89,7 +90,7 @@ class XeniumLGCP:
         sd = intensity_per_node.std() + 1e-9
         return (intensity_per_node - mu) / sd
 
-    def fit(self, target_gene, covariate_gene=None):
+    def fit(self, target_gene, covariate_genes=None):
         if self.tri_ is None:
             self._build_mesh()
             
@@ -103,12 +104,20 @@ class XeniumLGCP:
         X_cols_node = [np.ones((self.coords_.shape[0]))]
         X_cols_event = [np.ones(N_obs)]
         
-        if covariate_gene:
-            self.covariate_name_ = covariate_gene
-            cov_field_nodes = self._compute_covariate_field(covariate_gene)
-            cov_vals_events = A @ cov_field_nodes
-            X_cols_node.append(cov_field_nodes)
-            X_cols_event.append(cov_vals_events)
+        # Store as a list to handle multiple covariates
+        self.covariate_names_ = []
+        if covariate_genes:
+            # Standardize input to a list if they passed a single string
+            if isinstance(covariate_genes, str):
+                covariate_genes = [covariate_genes]
+            self.covariate_names_ = covariate_genes
+            
+            # Loop through all provided covariates
+            for cov_gene in covariate_genes:
+                cov_field_nodes = self._compute_covariate_field(cov_gene)
+                cov_vals_events = A @ cov_field_nodes                
+                X_cols_node.append(cov_field_nodes)
+                X_cols_event.append(cov_vals_events)
             
         X_tilde = np.column_stack(X_cols_node)
         X       = np.column_stack(X_cols_event)
@@ -117,6 +126,7 @@ class XeniumLGCP:
         beta_init = np.zeros(p)
         beta_init[0] = np.log(N_obs / np.sum(self.w_) + 1e-9)
         
+        # Pass the dynamically sized X_tilde and X to the engine
         self.model_ = VoGCAM_SPDE_GPU(verbose=self.verbose, rank=self.rank, max_iter=100)
         self.model_.fit(A_tilde, A, X_tilde, X, self.w_, self.Q_base_, beta_init)
         return self
@@ -124,60 +134,68 @@ class XeniumLGCP:
     def plot_results(self):
         """
         Plots:
-        1. Fitted Intensity (Lambda) - Uses 'viridis' (Purple-Yellow)
-        2. Posterior Mean of Latent Field (Mu) - Uses 'coolwarm' (Blue-Red)
-        3. Covariate Field (if present)
+        1. Fitted Intensity (Lambda)
+        2. Posterior Mean of Latent Field (Mu)
+        3+. Covariate Fields (if present)
         """
         if self.model_ is None: 
             print("Model not fitted.")
             return
         
-        # 1. Get Fitted Intensity (Lambda)
         A_id = csr_matrix(np.eye(self.coords_.shape[0]))
         X_cols = [np.ones((self.coords_.shape[0]))]
         
-        if self.covariate_name_:
-            cov = self._compute_covariate_field(self.covariate_name_)
-            X_cols.append(cov)
+        # Rebuild the covariate fields for plotting
+        if hasattr(self, 'covariate_names_') and self.covariate_names_:
+            for cov_name in self.covariate_names_:
+                cov = self._compute_covariate_field(cov_name)
+                X_cols.append(cov)
         
         X_pred = np.column_stack(X_cols)
         lam = self.model_.expected_intensity_on_grid(A_id, X_pred).get()
-        
-        # 2. Get Posterior Mean (Mu)
         mu_post = self.model_.mu_.get()
 
-        # 3. Determine Layout
-        has_covariate = (self.covariate_name_ is not None)
-        n_plots = 3 if has_covariate else 2
+        # Determine Layout based on number of covariates
+        n_covs = len(self.covariate_names_) if hasattr(self, 'covariate_names_') else 0
+        n_plots = 2 + n_covs
         
         fig, axes = plt.subplots(1, n_plots, figsize=(5 * n_plots, 5))
-        if n_plots == 1: axes = [axes]
+        if n_plots == 1: axes = [axes] # Safety fallback
         
-        # --- PLOT A: Fitted Intensity (Updated to 'viridis') ---
+        # --- PLOT A: Fitted Intensity ---
         ax = axes[0]
         cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
-                             self.tri_.simplices, lam, cmap='viridis') # <--- CHANGED TO VIRIDIS
+                             self.tri_.simplices, lam, levels=14, cmap='viridis') 
         plt.colorbar(cnt, ax=ax, label="Intensity $\lambda(s)$")
-        ax.set_title(f"Fitted Intensity\n(Target: {self.model_.beta_[0].item():.2f})")
+        ax.set_title(f"Fitted Intensity\n(Baseline $\\beta_0$: {self.model_.beta_[0].item():.2f})")
         
-        # --- PLOT B: Posterior Mean (Kept as 'coolwarm') ---
+        # --- PLOT B: Posterior Mean ---
         ax = axes[1]
-        vmax = np.max(np.abs(mu_post))
+        vmin, vmax = mu_post.min(), mu_post.max()
+        if vmin >= 0: vmin = -0.1
+        if vmax <= 0: vmax = 0.1
+            
+        norm = TwoSlopeNorm(vmin=vmin, vcenter=0., vmax=vmax)
         cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
                              self.tri_.simplices, mu_post, 
-                             cmap='coolwarm', vmin=-vmax, vmax=vmax)
+                             levels=14, cmap='coolwarm', norm=norm)
         plt.colorbar(cnt, ax=ax, label="Latent Field $\mu(s)$")
         ax.set_title("Posterior Mean (Spatial Residual)")
 
-        # --- PLOT C: Covariate (if exists) ---
-        if has_covariate:
-            ax = axes[2]
-            cov_field = X_cols[1]
+        # --- PLOT C+: Covariates ---
+        for i, cov_name in enumerate(self.covariate_names_):
+            ax = axes[2 + i]
+            cov_field = X_cols[1 + i]
+            vmax_cov = np.max(np.abs(cov_field))
+            
             cnt = ax.tricontourf(self.coords_[:,0], self.coords_[:,1], 
-                                 self.tri_.simplices, cov_field, cmap='viridis')
-            plt.colorbar(cnt, ax=ax, label="Std. Intensity")
-            beta_cov = self.model_.beta_[1].item()
-            ax.set_title(f"Covariate: {self.covariate_name_}\nBeta = {beta_cov:.3f}")
+                                 self.tri_.simplices, cov_field, 
+                                 levels=14, cmap='coolwarm', vmin=-vmax_cov, vmax=vmax_cov)
+            plt.colorbar(cnt, ax=ax, label="Std. Intensity (Z-Score)")
+            
+            # Extract the specific beta coefficient for this covariate
+            beta_cov = self.model_.beta_[1 + i].item()
+            ax.set_title(f"Covariate: {cov_name}\n$\\beta_{i+1}$ = {beta_cov:.3f}")
 
         plt.tight_layout()
         plt.show()

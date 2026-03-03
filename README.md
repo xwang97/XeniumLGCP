@@ -47,12 +47,12 @@ model.load_data("transcripts.csv")
 
 ### Step 2: Fit the Co-localization Model
 
-We fit the model treating the **Covariate Gene** as a continuous spatial field that influences the intensity of the **Target Gene**.
+We fit the model treating the covariate gene as a continuous spatial field that influences the intensity of the target gene. **You can model the influence of a single gene (by passing a string) or multiple genes simultaneously (by passing a list of strings).**
 
 ```python
 # target_gene: The points we are modeling (e.g., T-cells)
-# covariate_gene: The spatial predictor (e.g., B-cells)
-model.fit(target_gene="CD3E", covariate_gene="CD19")
+# covariate_genes: The spatial predictors (e.g., B-cells and Helper T-cells)
+model.fit(target_gene="CD3E", covariate_genes=["CD19", "CD4"])
 ```
 
 ### Step 3: Interpret Results
@@ -60,11 +60,12 @@ model.fit(target_gene="CD3E", covariate_gene="CD19")
 Check the estimated coefficients to quantify the relationship.
 
 ```python
-# Retrieve coefficients from the GPU
+# Retrieve coefficients
 beta = model.model_.beta_.get()
 
 print(f"Intercept (Baseline Density): {beta[0]:.3f}")
-print(f"Co-localization Effect:       {beta[1]:.3f}")
+print(f"CD19 Co-localization Effect:  {beta[1]:.3f}")
+print(f"CD4 Co-localization Effect:   {beta[2]:.3f}")
 ```
 
 ### Step 4: Visualizations
